@@ -2,6 +2,8 @@
 
 This script automates the backup and restore processes for MySQL Galera (XtraDB) Clusters using Percona's XtraBackup. It provides functionality for full backups, incremental backups, backup preparation, restoration, and backup rotation.
 
+# NOTE:  This is a Work in Progress and is not yet usable.
+
 ## Features
 
 - Full backups
