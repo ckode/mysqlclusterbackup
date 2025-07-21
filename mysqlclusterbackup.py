@@ -18,6 +18,7 @@
 import configparser
 import os
 import logging
+from datetime import datetime
 from logging.handlers import RotatingFileHandler
 import argparse
 
@@ -28,12 +29,10 @@ class Config:
     def __init__(self, config_file='mysqlclusterbackup.cfg'):
         self.config = configparser.ConfigParser()
         self.config_file = config_file
-        self.load_config()
 
-    def load_config(self):
         if not os.path.exists(self.config_file):
             raise FileNotFoundError(f"Configuration file '{self.config_file}' not found.")
-        
+
         self.config.read(self.config_file)
 
         # Load MYSQL_CLUSTER_BACKUP section
@@ -51,6 +50,7 @@ class Config:
         self.weekly_backup_count = self.config.getint('MYSQL_CLUSTER_BACKUP_ROTATION', 'WEEKLY_BACKUP_COUNT')
         self.monthly_backup_count = self.config.getint('MYSQL_CLUSTER_BACKUP_ROTATION', 'MONTHLY_BACKUP_COUNT')
         self.yearly_backup_count = self.config.getint('MYSQL_CLUSTER_BACKUP_ROTATION', 'YEARLY_BACKUP_COUNT')
+
 
     def get(self, section, key, fallback=None):
         return self.config.get(section, key, fallback=fallback)
@@ -116,6 +116,30 @@ def parse_arguments():
 
     return parser.parse_args()
 
+def get_most_recent_backup(root_backup_path):
+    """
+    Return the most recent backup directory in the
+    given backup path.
+
+    :param root_backup_path:
+    :return:
+    """
+    most_recent = (None, None)
+
+    for item in os.listdir(root_backup_path):
+        full_path = os.path.join(root_backup_path, item)
+        if os.path.isdir(full_path):
+            try:
+                # Attempt to parse the directory name as a date
+                date_obj = datetime.strptime(item, "%Y-%m-%d")
+                if most_recent[1] is None or date_obj > most_recent[1]:
+                    most_recent = (full_path, date_obj)
+            except ValueError:
+                # If the directory name doesn't match the expected format, skip it
+                continue
+
+    return most_recent
+
 
 def main():
     args = parse_arguments()
@@ -143,6 +167,7 @@ def main():
             # Add your backup logic here
         elif args.incremental:
             logger.info("Performing incremental backup")
+            current_backup = get_most_recent_backup(config.xtrabackup_path)
             # Add your incremental backup logic here
         elif args.prepare:
             logger.info("Preparing backup for restoration")
