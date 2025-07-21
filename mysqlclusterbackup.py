@@ -37,7 +37,7 @@ class Config:
 
         # Load MYSQL_CLUSTER_BACKUP section
         self.mysql_data = self.config.get('MYSQL_CLUSTER_BACKUP', 'MYSQL_DATA')
-        self.backup_root_path = self.config.get('MYSQL_CLUSTER_BACKUP', 'BACKUP_ROOT_PATH')
+        self.root_backup_path = self.config.get('MYSQL_CLUSTER_BACKUP', 'ROOT_BACKUP_PATH')
         self.notification_email = self.config.get('MYSQL_CLUSTER_BACKUP', 'NOTIFICATION_EMAIL')
         self.notification_from = self.config.get('MYSQL_CLUSTER_BACKUP', 'NOTIFICATION_FROM')
         self.smtp_server = self.config.get('MYSQL_CLUSTER_BACKUP', 'SMTP_SERVER')
@@ -167,7 +167,7 @@ def main():
             # Add your backup logic here
         elif args.incremental:
             logger.info("Performing incremental backup")
-            current_backup = get_most_recent_backup(config.xtrabackup_path)
+            current_backup = get_most_recent_backup(config.root_backup_path)
             # Add your incremental backup logic here
         elif args.prepare:
             logger.info("Preparing backup for restoration")
