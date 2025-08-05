@@ -20,13 +20,16 @@ import argparse
 import os
 import sys
 import re
+import json
 import subprocess
 import logging
+import inflect
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 
 
 logger = None
+p = inflect.engine()
 
 class Config:
     """
@@ -148,6 +151,61 @@ def get_most_recent_backup(root_backup_path):
     return most_recent
 
 
+def find_incrementals(directory_path):
+    """
+    find_incrementals(directory_path)
+
+    Provided a path to a backup directory, this function will search
+    the directory for incremental directories designated incr# with #
+    being the numeric order that incrementals were created. 
+
+    :param: directory_path - The path to a valid backup.
+
+    :return: - Dict: response = {
+                                 'base_backup': directory_path,
+                                 'incrementals': ['/path/to/backup/incr1', 
+                                                  '/path/to/backup/incr2',
+                                                  '/path/to/backup/incr3']
+                                }
+
+    Notes: 
+           * The incrementals will be in numeric order. (2 before 10)
+           * If no incrementals exist, an empty list will be returned.
+           * If the directory_path doesn't exist, None will be returned.
+                   
+    """
+    response = {
+        'base_backup': directory_path, 
+        'incrementals': [] 
+     }
+   
+    if not os.path.isdir(directory_path):
+        return None
+    
+    subdirs = [d for d in os.listdir(directory_path) 
+              if os.path.isdir(os.path.join(directory_path, d))]
+    
+    # Filter for incr# directories and extract numbers
+    incr_dirs = []
+    for subdir in subdirs:
+        match = re.match(r'incr(\d+)$', subdir)
+        if match:
+            num = int(match.group(1))
+    
+            incr_dirs.append((num, subdir))
+
+    # Sort  numericly for proper "prepare" of backup for restore
+    incr_dirs.sort(key=lambda x: x[0])
+    
+    # Add sort-ordered incremental paths to response.
+    response['incrementals'] = [
+        os.path.join(directory_path, dir_name) 
+        for _, dir_name in incr_dirs
+    ]
+    
+    return response
+
+
 def find_next_incr_directory(backup_path):
     """
     Find what the next incr directory name should be in the given directory.
@@ -253,6 +311,35 @@ def get_latest_backup(config):
     return response    
 
 
+def prepare_backup(backup_base):
+    """
+    prepare_backup(backup_base)
+
+    Examines the provided backup directory and looks for
+    incremental backups.   Once it has the incremental 
+    directories, it will begin by preparing the base
+    backup and then prepare the incremental backups 
+    in order.
+
+    :param: backup_base - The backup's base directory.
+
+    :return: 
+    """
+    logger.info(f"Preparing backup for restore: {backup_base}")
+
+    incrementals = find_incrementals(backup_base)
+    found_incr = incrementals['incrementals']
+    # Incrementals + base backup
+    to_prepare = len(incrementals['incrementals']) + 1 
+
+    logger.info(f"One base backup directory and {p.number_to_words(len(found_incr))} incrementals found.")
+    logger.info(f"Base => {backup_base}")
+  
+    if len(incrementals) != 0:
+        for incr in found_incr:
+            logger.info(f"Incremental => {incr}") 
+
+
 def perform_incremental_backup(full_backup_path, incremental_backup_path):
     """
     perform_incremental_backup(full_backup_path, incremental_backup_path)
@@ -272,6 +359,7 @@ def perform_incremental_backup(full_backup_path, incremental_backup_path):
         logger.error(e)
         logger.error(e.stderr)
 
+
 def perform_backup(backup_path):
     """
     perform_backup(backup_path)
@@ -283,8 +371,9 @@ def perform_backup(backup_path):
         result = subprocess.run(['xtrabackup', '--backup', '--compress', target], 
                                   capture_output=True, text=True, check=True)
         
-        logger.info(f"xtradb stdout: {result.stdout}")
-        logger.info(f"xtradb stderr: {result.stderr}")
+        logger.debug(f"xtradb stdout: {result.stdout}")
+        logger.debug(f"xtradb stderr: {result.stderr}")
+        logger.info(f"Backup completed successfully.")
 
     except subprocess.CalledProcessError as e:
         logger.error("Backup failed!")
@@ -319,6 +408,8 @@ def main():
             logger.info("Performing full backup")
             # Add your backup logic here
             state = get_latest_backup(config)
+            if state['last_backup_today']:
+                logger.error(f"A full backup already exists for today: {state['base_backup_loc']}")
             perform_backup(state['next_backup_loc'])
 
         elif args.incremental:
@@ -336,6 +427,8 @@ def main():
         elif args.prepare:
             logger.info("Preparing backup for restoration")
             # Add your prepare logic here
+            prepare_backup('/data/backup/2025-08-05')
+
         elif args.restore:
             logger.info("Restoring from backup")
             # Add your restore logic here
