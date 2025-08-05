@@ -16,11 +16,17 @@
 ##########################################################
 
 import configparser
+import argparse
 import os
+import sys
+import re
+import subprocess
 import logging
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
-import argparse
+
+
+logger = None
 
 class Config:
     """
@@ -116,6 +122,7 @@ def parse_arguments():
 
     return parser.parse_args()
 
+
 def get_most_recent_backup(root_backup_path):
     """
     Return the most recent backup directory in the
@@ -141,7 +148,139 @@ def get_most_recent_backup(root_backup_path):
     return most_recent
 
 
+def find_next_incr_directory(backup_path):
+    """
+    Find what the next incr directory name should be in the given directory.
+    
+    Args:
+        backup_path (str): Path to search in. Defaults to current directory.
+        
+    Returns:
+        str: Name of the next incr directory (e.g., 'incr3' if incr1 and incr2 exist).
+    """
+    if not backup_path or not os.path.exists(backup_path):
+        logger.critical(f"Error: find_next_incr_directory provided non-existing directory.")
+        logger.critical(f"Backup path does not exist: {backup_path}")
+        return None
+
+    try:
+        # Get all items in the directory
+        items = os.listdir(backup_path)
+        
+        # Filter for directories only
+        directories = [item for item in items 
+                      if os.path.isdir(os.path.join(backup_path, item))]
+        
+        # Pattern to match 'incr' followed by one or more digits
+        pattern = re.compile(r'^incr(\d+)$')
+        
+        incr_dirs = []
+        
+        for dir_name in directories:
+            match = pattern.match(dir_name)
+            if match:
+                number = int(match.group(1))
+                incr_dirs.append((dir_name, number))
+        
+        if not incr_dirs:
+            return os.path.join(backup_path, "incr1")
+        
+        # Find the highest number and return the next one
+        highest_number = max(incr_dirs, key=lambda x: x[1])[1]
+        return os.path.join(backup_path, f"incr{highest_number + 1}")
+        
+    except FileNotFoundError:
+        print(f"Directory '{backup_path}' not found.")
+        return None
+
+    except PermissionError:
+        print(f"Permission denied to access '{backup_path}'.")
+        return None
+
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return None
+
+
+def get_latest_backup(config):
+    """
+    get_latest_backup(config)
+
+    Returns a dictionary with details of the most recent
+    backups, including any incrementals that exist.
+
+    :param:  config - The configuration of this script.
+
+    :return: dict: Response with backup details.
+
+    Example: response = {'last_backup_today': bool,
+                         'last_backup_incr': bool,
+                         'next_backup_loc': str} 
+
+    Note: next_backup_loc is a path to the next incremental
+          backup if 'last_backup_incr' is True. Other wise,
+          it's the next full backup location.
+    """
+    response = {'last_backup_today': False,
+                'last_backup_incr': False,
+                'next_backup_loc': None
+               }     
+    backup_path = config.root_backup_path
+
+    if os.path.exists(backup_path):
+        logger.debug(f"Backup path found: {backup_path}")
+        today = datetime.today().strftime('%Y-%m-%d')
+        todays_backup = os.path.join(backup_path, today)
+
+        if os.path.exists(todays_backup):
+            response['last_backup_today'] = True
+            logger.debug(f"A backup for today was found: {todays_backup}")
+
+            next_incremental = find_next_incr_directory(todays_backup)
+            if next_incremental:
+                response['next_backup_loc'] = next_incremental
+                if next_incremental.endswith('incr1'):
+                    response['last_backup_incr'] = False
+                else:
+                    response['last_backup_incr'] = True
+
+                logger.debug(f"Next incremental location discovered: {next_incremental}")
+        else:
+            response['next_backup_loc'] = todays_backup
+   
+    return response    
+
+
+def perform_incremental_backup(backup_path):
+    """
+    perform_incremental_backup(backup_path)
+    """
+    logger.info(f"Incremental backup location: {backup_path}")
+
+
+def perform_backup(backup_path):
+    """
+    perform_backup(backup_path)
+
+    """
+    logger.info(f"Backup location: {backup_path}")
+    target = f"--target-dir={backup_path}"
+    try:
+        result = subprocess.run(['xtrabackup', '--backup', '--compress', target], 
+                                  capture_output=True, text=True, check=True)
+        
+        logger.info(f"xtradb stdout: {result.stdout}")
+        logger.info(f"xtradb stderr: {result.stderr}")
+
+    except subprocess.CalledProcessError as e:
+        logger.error("Backup failed!")
+        logger.error(e)
+        logger.error(e.stderr)
+
+    return    
+
 def main():
+    global logger
     args = parse_arguments()
     
     try:
@@ -165,10 +304,20 @@ def main():
         if args.backup:
             logger.info("Performing full backup")
             # Add your backup logic here
+            state = get_latest_backup(config)
+            perform_backup(state['next_backup_loc'])
+
         elif args.incremental:
+            # Incremental backup logic 
             logger.info("Performing incremental backup")
-            current_backup = get_most_recent_backup(config.root_backup_path)
-            # Add your incremental backup logic here
+            state = get_latest_backup(config)
+            if state['last_backup_today']:
+                logger.info(f"Incremental backup location: {state['next_backup_loc']}")
+                perform_incremental_backup(state['next_backup_loc'])
+            else:
+                logger.critical(f"Unable to preform incremental backup, there is no existing daily backup.")
+                logger.critical(f"Expected daily backup location: {state['next_backup_loc']}")
+      
         elif args.prepare:
             logger.info("Preparing backup for restoration")
             # Add your prepare logic here
