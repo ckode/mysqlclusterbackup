@@ -223,7 +223,8 @@ def get_latest_backup(config):
     """
     response = {'last_backup_today': False,
                 'last_backup_incr': False,
-                'next_backup_loc': None
+                'next_backup_loc': None,
+                'base_backup_loc': None
                }     
     backup_path = config.root_backup_path
 
@@ -234,6 +235,7 @@ def get_latest_backup(config):
 
         if os.path.exists(todays_backup):
             response['last_backup_today'] = True
+            response['base_backup_loc'] = todays_backup
             logger.debug(f"A backup for today was found: {todays_backup}")
 
             next_incremental = find_next_incr_directory(todays_backup)
@@ -251,12 +253,24 @@ def get_latest_backup(config):
     return response    
 
 
-def perform_incremental_backup(backup_path):
+def perform_incremental_backup(full_backup_path, incremental_backup_path):
     """
-    perform_incremental_backup(backup_path)
+    perform_incremental_backup(full_backup_path, incremental_backup_path)
     """
-    logger.info(f"Incremental backup location: {backup_path}")
+    logger.info(f"Incremental backup location: {incremental_backup_path}")
+    base_backup = f"--incremental-basedir={full_backup_path}"
+    incremental_target = f"--target-dir={incremental_backup_path}"
+    try:
+        result = subprocess.run(['xtrabackup', '--backup', '--compress', incremental_target, base_backup], 
+                                  capture_output=True, text=True, check=True)
+        
+        logger.info(f"xtradb stdout: {result.stdout}")
+        logger.info(f"xtradb stderr: {result.stderr}")
 
+    except subprocess.CalledProcessError as e:
+        logger.error("Incremental backup failed!")
+        logger.error(e)
+        logger.error(e.stderr)
 
 def perform_backup(backup_path):
     """
@@ -311,9 +325,10 @@ def main():
             # Incremental backup logic 
             logger.info("Performing incremental backup")
             state = get_latest_backup(config)
-            if state['last_backup_today']:
+            if state['last_backup_today'] and state['base_backup_loc']:
                 logger.info(f"Incremental backup location: {state['next_backup_loc']}")
-                perform_incremental_backup(state['next_backup_loc'])
+                logger.info(f"Base backup location: {state['base_backup_loc']}")
+                perform_incremental_backup(state['base_backup_loc'], state['next_backup_loc'])
             else:
                 logger.critical(f"Unable to preform incremental backup, there is no existing daily backup.")
                 logger.critical(f"Expected daily backup location: {state['next_backup_loc']}")
