@@ -121,6 +121,7 @@ def parse_arguments():
 
     # Add optional arguments
     parser.add_argument('-c', '--config', default='mysqlclusterbackup.cfg', help='Path to the configuration file')
+    parser.add_argument('-d', '--date', default='mysqlclusterbackup.cfg', help='Date to prepare / restore a backup from')
     parser.add_argument('-v', '--verbose', action='store_true', help='Increase output verbosity')
 
     return parser.parse_args()
@@ -150,6 +151,29 @@ def get_most_recent_backup(root_backup_path):
 
     return most_recent
 
+
+def verify_backup_date(backup_date, root_backup_path):
+    """
+    verify_backup_date(str: backup_date)
+ 
+    Verify the date format and existance of the backup.
+   
+    :param: backup_date:  str:  format: "YYYY-MM-DD"
+    """
+    try:
+        date_obj = datetime.strptime(backup_date, "%Y-%m-%d")
+    except:
+        logger.error(f"Invalid date format provided: {backup_date}")    
+        logger.error("Expected format: YYYY-MM-DD")
+        sys.exit()
+    
+    path = os.path.join(root_backup_path, backup_date)
+    if os.path.isdir(path):
+        return True
+    else:
+        logger.error(f"A backup does not exist at the location provided: {path}")
+        sys.exit(1)
+    
 
 def find_incrementals(directory_path):
     """
@@ -334,10 +358,42 @@ def prepare_backup(backup_base):
 
     logger.info(f"One base backup directory and {p.number_to_words(len(found_incr))} incrementals found.")
     logger.info(f"Base => {backup_base}")
-  
+ 
+    if len(incrementals == 0:
+        # Only base backup, prepare it and quit.
+        try:
+            target_dir = f"--target-dir={backup_base}"
+            result = subprocess.run(['xtrabackup', '--prepare' '--decompress', target_dir],
+                                     capture_output=True, text=True, check=True) 
+        except Exception as w:
+            logger.error("Preparing the base directory failed.")
+            logger.error(e)
+            logger.error(e.stderr)
+            sys.exit(1)
+
+        return
+
+    else:
+        # Base and incrementals to prepare, so --apply-logs-only on base
+        # TODO:  Add incremenntals to preapre below
+        try:
+            target_dir = f"--target-dir={backup_base}"
+            result = subprocess.run(['xtrabackup', '--prepare' '--decompress', '--apply-logs-only', target_dir],
+                                     capture_output=True, text=True, check=True) 
+        except Exception as w:
+            logger.error("Preparing the base directory failed.")
+            logger.error(e)
+            logger.error(e.stderr)
+            sys.exit(1)
+
+    count = 0 
     if len(incrementals) != 0:
         for incr in found_incr:
-            logger.info(f"Incremental => {incr}") 
+            count += 1
+            if count == len(incrementals):
+                logger.info(f"Incremental => {incr} - Last")
+            else:
+                logger.info(f"Incremental => {incr}") 
 
 
 def perform_incremental_backup(full_backup_path, incremental_backup_path):
@@ -425,9 +481,12 @@ def main():
                 logger.critical(f"Expected daily backup location: {state['next_backup_loc']}")
       
         elif args.prepare:
-            logger.info("Preparing backup for restoration")
-            # Add your prepare logic here
-            prepare_backup('/data/backup/2025-08-05')
+            # Prepare backup
+            if args.date:
+                verify_backup_date(args.date, config.root_backup_path)
+                prepare_backup(os.path.join(config.root_backup_path, args.date)) #datetime.strptime(args.date, '%Y-%m-%d')))
+            else:
+                logger.error("A date is required of the backup is required for preparing a backup.")
 
         elif args.restore:
             logger.info("Restoring from backup")
