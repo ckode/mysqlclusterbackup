@@ -357,50 +357,85 @@ def prepare_backup(backup_base):
     to_prepare = len(incrementals['incrementals']) + 1 
 
     logger.info(f"One base backup directory and {p.number_to_words(len(found_incr))} incrementals found.")
-    logger.info(f"Base => {backup_base}")
  
-    if len(incrementals == 0:
+    if len(found_incr) == 0:
         # Only base backup, prepare it and quit.
+        logger.info(f"Preparing base backup with no incrementals: {base_backup}")
         try:
             target_dir = f"--target-dir={backup_base}"
-            result = subprocess.run(['xtrabackup', '--prepare' '--decompress', target_dir],
+            result = subprocess.run(['xtrabackup', '--prepare', target_dir],
                                      capture_output=True, text=True, check=True) 
-        except Exception as w:
+        except Exception as e:
             logger.error("Preparing the base directory failed.")
             logger.error(e)
             logger.error(e.stderr)
             sys.exit(1)
 
+        else:
+            logger.info(f"Base backup {backup_base} has been prepared and is ready to be restored.")
         return
 
     else:
         # Base and incrementals to prepare, so --apply-logs-only on base
         # TODO:  Add incremenntals to preapre below
+        logger.info(f"Preparing base backup with --apply-log-only for incrementals next: {backup_base}")
         try:
             target_dir = f"--target-dir={backup_base}"
-            result = subprocess.run(['xtrabackup', '--prepare' '--decompress', '--apply-logs-only', target_dir],
+            result = subprocess.run(['xtrabackup', '--prepare', '--apply-log-only', target_dir],
                                      capture_output=True, text=True, check=True) 
-        except Exception as w:
+        except Exception as e:
             logger.error("Preparing the base directory failed.")
             logger.error(e)
             logger.error(e.stderr)
             sys.exit(1)
+        else:
+            logger.info(f"Base backup preperation has completed successfully. Next, preperation begins on the incrementals.")
 
     count = 0 
     if len(incrementals) != 0:
         for incr in found_incr:
             count += 1
             if count == len(incrementals):
-                logger.info(f"Incremental => {incr} - Last")
+                logger.info(f"Preparing last incremental backup without --apply-log-only : {os.path.join(backup_base, incr)}")
+                try:
+                    target_dir = f"--target-dir={backup_base}"
+                    incremental_dir = f"--incremental-dir={os.path.join(backup_base, incr)}"
+                    result = subprocess.run(['xtrabackup', '--prepare',  target_dir, incremental_dir],
+                                             capture_output=True, text=True, check=True) 
+                except Exception as e:
+                    logger.error(f"Preparing the incremental directory failed: {incr}")
+                    logger.error(e)
+                    logger.error(e.stderr)
+                    sys.exit(1)
+                else: 
+                    logger.info("Incremental preperation completed successfully.")
+                    logger.info("Backup preparation succeeded.")
+                    logger.info(f"The backup for {backup_base} ready for restore process.")
             else:
-                logger.info(f"Incremental => {incr}") 
+                logger.info(f"Preparing incremental backup with --apply-log-only for next incremental: {os.path.join(backup_base, incr)}")
+                try:
+                    target_dir = f"--target-dir={backup_base}"
+                    incremental_dir = f"--incremental-dir={os.path.join(backup_base, incr)}"
+                    result = subprocess.run(['xtrabackup', '--prepare', '--apply-log-only', target_dir, incremental_dir],
+                                             capture_output=True, text=True, check=True) 
+                except Exception as e:
+                    logger.error(f"Preparing the base directory failed: {incr}")
+                    logger.error(e)
+                    logger.error(e.stderr)
+                    sys.exit(1)
+                else: 
+                    logger.info("Incremental preperation completed successfully.")
+                    logger.info("Backup preparation succeeded.")
+                    logger.info(f"The backup for {backup_base} ready for restore process.")
 
 
 def perform_incremental_backup(full_backup_path, incremental_backup_path):
     """
     perform_incremental_backup(full_backup_path, incremental_backup_path)
     """
+    logger.info(f"Base backup location: {full_backup_path}")
     logger.info(f"Incremental backup location: {incremental_backup_path}")
+
     base_backup = f"--incremental-basedir={full_backup_path}"
     incremental_target = f"--target-dir={incremental_backup_path}"
     try:
@@ -473,8 +508,6 @@ def main():
             logger.info("Performing incremental backup")
             state = get_latest_backup(config)
             if state['last_backup_today'] and state['base_backup_loc']:
-                logger.info(f"Incremental backup location: {state['next_backup_loc']}")
-                logger.info(f"Base backup location: {state['base_backup_loc']}")
                 perform_incremental_backup(state['base_backup_loc'], state['next_backup_loc'])
             else:
                 logger.critical(f"Unable to preform incremental backup, there is no existing daily backup.")
