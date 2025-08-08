@@ -87,7 +87,7 @@ MAILFROM="from-address@example.com"
 MDBNAMES="mysql $DBNAMES"
 
 # List of DBNAMES to EXLUCDE if DBNAMES are set to all (must be in " quotes)
-DBEXCLUDE=""
+DBEXCLUDE="information_schema"
 
 # Include CREATE DATABASE in backup?
 CREATE_DATABASE=no
@@ -372,14 +372,6 @@ echo ======================================================================
 	do
 	# Prepare $DB for using
 	DB="`echo $DB | sed 's/%/ /g'`"
-
-        ##################################
-        # Skip information_schema database
-        ##################################
-        if [[ $DB == 'information_schema' ]]; then
-                echo "Skipping $DB database, it's not meant to be backed up..."
-                continue
-        fi	
 
 	# Create Seperate directory for each DB
 	if [ ! -e "$BACKUPDIR/daily/$DB" ]		# Check Daily DB Directory exists.
